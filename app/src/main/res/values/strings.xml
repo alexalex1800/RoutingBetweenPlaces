@@ -1,0 +1,16 @@
+<resources>
+    <string name="app_name">MultiStopRouter</string>
+    <!-- TODO: Replace with a secure API key provided via local.properties (MAPS_API_KEY). -->
+    <string name="google_maps_key">YOUR_MAPS_API_KEY</string>
+    <string name="start_label">Start</string>
+    <string name="stopover_label">Zwischenziel</string>
+    <string name="destination_label">Ziel</string>
+    <string name="travel_mode_label">Modus</string>
+    <string name="travel_mode_walking">Fuß</string>
+    <string name="travel_mode_driving">Auto</string>
+    <string name="travel_mode_bicycling">Fahrrad</string>
+    <string name="travel_mode_transit">ÖPNV</string>
+    <string name="route_summary_placeholder">Keine Route gefunden</string>
+    <string name="request_permission">Standortberechtigung benötigt</string>
+    <string name="request_permission_rationale">Die App benötigt den Standort, um dein Startfeld automatisch zu füllen.</string>
+</resources>
