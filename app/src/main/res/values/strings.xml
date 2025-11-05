@@ -1,0 +1,15 @@
+<resources>
+    <string name="app_name">MultiStopRouter</string>
+    <!-- TODO: Ersetze durch echten Key oder injiziere via local.properties buildConfigField -->
+    <string name="google_maps_key">YOUR_MAPS_API_KEY</string>
+    <string name="start_label">Start</string>
+    <string name="via_label">Zwischenziel</string>
+    <string name="destination_label">Ziel</string>
+    <string name="mode_label">Modus</string>
+    <string name="duration_format">%1$s • %2$s</string>
+    <string name="request_permission_rationale">Die App benötigt den Standort, um deine aktuelle Position als Startpunkt vorzuschlagen.</string>
+    <string name="no_candidates_found">Kein passendes Zwischenziel gefunden.</string>
+    <string name="routing_error">Routing fehlgeschlagen. Bitte versuche es erneut.</string>
+    <string name="missing_permissions">Standortberechtigung wird benötigt.</string>
+    <string name="maps_not_ready">Karte wird initialisiert …</string>
+</resources>
