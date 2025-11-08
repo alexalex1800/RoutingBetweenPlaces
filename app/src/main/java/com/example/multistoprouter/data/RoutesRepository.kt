@@ -1,12 +1,20 @@
 package com.example.multistoprouter.data
 
 import android.util.Log
+import com.example.multistoprouter.BuildConfig
 import com.example.multistoprouter.data.cache.InMemoryLruCache
-import com.example.multistoprouter.net.OsrmApi
-import com.example.multistoprouter.net.OsrmResponse
-import com.example.multistoprouter.net.PhotonApi
-import com.example.multistoprouter.net.PhotonFeature
+import com.example.multistoprouter.net.DirectionsApi
+import com.example.multistoprouter.net.DirectionsResponse
+import com.example.multistoprouter.net.PlacesTextSearchApi
+import com.example.multistoprouter.net.PlacesTextSearchResult
+import com.google.android.gms.maps.model.LatLng
+import com.google.android.libraries.places.api.model.AutocompleteSessionToken
+import com.google.android.libraries.places.api.model.FetchPlaceRequest
+import com.google.android.libraries.places.api.model.FindAutocompletePredictionsRequest
+import com.google.android.libraries.places.api.model.Place
+import com.google.android.libraries.places.api.net.PlacesClient
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 import retrofit2.HttpException
 import java.util.Locale
@@ -14,53 +22,81 @@ import java.util.Locale
 private const val TAG = "RoutesRepository"
 
 class RoutesRepository(
-    private val photonApi: PhotonApi,
-    private val osrmApi: OsrmApi,
+    private val placesClient: PlacesClient,
+    private val directionsApi: DirectionsApi,
+    private val textSearchApi: PlacesTextSearchApi,
     private val suggestionCache: InMemoryLruCache<String, List<PlaceSuggestion>> = InMemoryLruCache(50),
-    private val routeCache: InMemoryLruCache<String, RouteCandidate> = InMemoryLruCache(30)
+    private val placeCache: InMemoryLruCache<String, PlaceLocation> = InMemoryLruCache(50),
+    private val routeCache: InMemoryLruCache<String, RouteCandidate> = InMemoryLruCache(30),
 ) {
+
+    private val fields = listOf(Place.Field.ID, Place.Field.NAME, Place.Field.ADDRESS, Place.Field.LAT_LNG)
 
     suspend fun autocomplete(query: String): List<PlaceSuggestion> = withContext(Dispatchers.IO) {
         if (query.isBlank()) return@withContext emptyList()
         suggestionCache.get(query)?.let { return@withContext it }
-        val language = Locale.getDefault().language
+        val token = AutocompleteSessionToken.newInstance()
+        val request = FindAutocompletePredictionsRequest.builder()
+            .setSessionToken(token)
+            .setQuery(query)
+            .build()
         return@withContext try {
-            val response = photonApi.search(query = query, limit = 8, language = language)
-            val suggestions = response.features.mapNotNull { it.toSuggestion() }
+            val response = placesClient.findAutocompletePredictions(request).await()
+            val suggestions = response.autocompletePredictions.map {
+                PlaceSuggestion(placeId = it.placeId, description = it.getFullText(null).toString())
+            }
             suggestionCache.put(query, suggestions)
             suggestions
-        } catch (http: HttpException) {
-            Log.e(TAG, "Photon autocomplete HTTP error", http)
-            emptyList()
         } catch (t: Throwable) {
-            Log.e(TAG, "Photon autocomplete failed", t)
+            Log.e(TAG, "Autocomplete failed", t)
             emptyList()
+        }
+    }
+
+    suspend fun fetchPlace(placeId: String): PlaceLocation? = withContext(Dispatchers.IO) {
+        if (placeId.isBlank()) return@withContext null
+        placeCache.get(placeId)?.let { return@withContext it }
+        val request = FetchPlaceRequest.builder(placeId, fields).build()
+        return@withContext try {
+            val response = placesClient.fetchPlace(request).await()
+            val place = response.place
+            val latLng = place.latLng ?: return@withContext null
+            val location = PlaceLocation(
+                placeId = place.id ?: placeId,
+                name = place.name ?: place.address ?: "Unbenannter Ort",
+                address = place.address,
+                latLng = latLng
+            )
+            placeCache.put(placeId, location)
+            location
+        } catch (t: Throwable) {
+            Log.e(TAG, "Fetch place failed", t)
+            null
         }
     }
 
     suspend fun findCandidates(
         query: String,
-        anchor: GeoPoint?,
-        limit: Int = 10
+        anchor: LatLng?,
+        radiusMeters: Int = 10_000
     ): List<PlaceLocation> = withContext(Dispatchers.IO) {
         if (query.isBlank()) return@withContext emptyList()
-        val language = Locale.getDefault().language
+        val locationString = anchor?.let { "${it.latitude},${it.longitude}" }
         return@withContext try {
-            val response = photonApi.search(
+            val response = textSearchApi.textSearch(
                 query = query,
-                limit = limit,
-                language = language,
-                latitude = anchor?.latitude,
-                longitude = anchor?.longitude
+                location = locationString,
+                radius = if (anchor != null) radiusMeters else null,
+                key = BuildConfig.MAPS_API_KEY
             )
-            response.features.mapNotNull { feature ->
-                feature.toSuggestion()?.toPlaceLocation()
-            }
+            response.results
+                .take(10)
+                .mapNotNull { it.toPlaceLocation() }
         } catch (http: HttpException) {
-            Log.e(TAG, "Photon candidate HTTP error", http)
+            Log.e(TAG, "Text search http error", http)
             emptyList()
         } catch (t: Throwable) {
-            Log.e(TAG, "Photon candidate search failed", t)
+            Log.e(TAG, "Text search failed", t)
             emptyList()
         }
     }
@@ -71,26 +107,32 @@ class RoutesRepository(
         destination: PlaceLocation,
         travelMode: TravelMode
     ): RouteCandidate? = withContext(Dispatchers.IO) {
-        val profile = travelMode.osrmProfile ?: return@withContext null
         val cacheKey = listOf(
             start.cacheKey(),
             waypoint.cacheKey(),
             destination.cacheKey(),
-            profile
+            travelMode.apiValue
         ).joinToString(separator = "|")
         routeCache.get(cacheKey)?.let { return@withContext it }
-        val coordinates = listOf(start.point, waypoint.point, destination.point)
-            .joinToString(separator = ";") { "${it.longitude},${it.latitude}" }
+        val startString = start.latLng.toQueryParam()
+        val destinationString = destination.latLng.toQueryParam()
+        val waypointString = waypoint.latLng.toQueryParam()
         val response = try {
-            osrmApi.route(profile = profile, coordinates = coordinates)
+            directionsApi.route(
+                origin = startString,
+                destination = destinationString,
+                waypoints = waypointString,
+                mode = travelMode.apiValue,
+                key = BuildConfig.MAPS_API_KEY
+            )
         } catch (http: HttpException) {
-            Log.e(TAG, "OSRM route HTTP error", http)
+            Log.e(TAG, "Directions http error", http)
             return@withContext null
         } catch (t: Throwable) {
-            Log.e(TAG, "OSRM route failed", t)
+            Log.e(TAG, "Directions error", t)
             return@withContext null
         }
-        val candidate = response.toRouteCandidate(start, waypoint, destination)
+        val candidate = response.toRouteCandidate()
         if (candidate != null) {
             routeCache.put(cacheKey, candidate)
         }
@@ -102,9 +144,8 @@ class RoutesRepository(
         stopoverQuery: String,
         destination: PlaceLocation,
         travelMode: TravelMode,
-        anchor: GeoPoint?
+        anchor: LatLng?
     ): CandidateResult? {
-        if (!travelMode.isSupported) return null
         val candidates = findCandidates(stopoverQuery, anchor)
         if (candidates.isEmpty()) return null
         val evaluated = candidates.mapNotNull { candidate ->
@@ -115,63 +156,46 @@ class RoutesRepository(
     }
 }
 
-private fun PhotonFeature.toSuggestion(): PlaceSuggestion? {
-    val geometry = geometry ?: return null
-    if (geometry.coordinates.size < 2) return null
-    val lon = geometry.coordinates[0]
-    val lat = geometry.coordinates[1]
-    val name = properties?.name ?: return null
-    val id = listOfNotNull(properties?.osmType, properties?.osmId?.toString()).joinToString(":")
-    val addressParts = listOfNotNull(
-        properties?.street,
-        properties?.postcode,
-        properties?.city,
-        properties?.country
-    )
-    val address = if (addressParts.isEmpty()) null else addressParts.joinToString(", ")
-    return PlaceSuggestion(
-        id = if (id.isNotBlank()) id else "$lon,$lat",
-        description = name,
-        address = address,
-        coordinate = GeoPoint(latitude = lat, longitude = lon)
+private fun PlaceLocation.cacheKey(): String = if (placeId.isNotBlank()) placeId else "${latLng.latitude},${latLng.longitude}"
+
+private fun PlacesTextSearchResult.toPlaceLocation(): PlaceLocation? {
+    val latLng = geometry?.location ?: return null
+    val mapsLatLng = LatLng(latLng.lat, latLng.lng)
+    return PlaceLocation(
+        placeId = placeId,
+        name = name,
+        address = formattedAddress,
+        latLng = mapsLatLng
     )
 }
 
-private fun PlaceLocation.cacheKey(): String =
-    if (placeId.isNotBlank()) placeId else "${point.latitude},${point.longitude}"
+private fun LatLng.toQueryParam(): String = "${latitude},${longitude}"
 
-private fun OsrmResponse.toRouteCandidate(
-    start: PlaceLocation,
-    waypoint: PlaceLocation,
-    destination: PlaceLocation
-): RouteCandidate? {
-    if (!code.equals("Ok", ignoreCase = true)) {
-        Log.w(TAG, "OSRM response not OK: $code $message")
-        return null
-    }
-    val osrmRoute = routes.firstOrNull() ?: return null
-    val routeLegs = osrmRoute.legs
-    val orderedPoints = listOf(start.point, waypoint.point, destination.point)
-    if (routeLegs.size != orderedPoints.size - 1) return null
-    val legs = routeLegs.zip(orderedPoints.zipWithNext()).map { (leg, points) ->
-        val (startPoint, endPoint) = points
+private fun DirectionsResponse.toRouteCandidate(): RouteCandidate? {
+    val firstRoute = routes.firstOrNull() ?: return null
+    val legs = firstRoute.legs.mapNotNull { leg ->
+        val distance = leg.distance ?: return@mapNotNull null
+        val duration = leg.duration ?: return@mapNotNull null
         RouteLeg(
-            start = startPoint,
-            end = endPoint,
-            distanceMeters = leg.distance?.toLong() ?: return null,
-            distanceText = formatDistance(leg.distance ?: return null),
-            durationSeconds = leg.duration?.toLong() ?: return null,
-            durationText = formatDuration(leg.duration ?: return null)
+            start = LatLng(leg.startLocation.lat, leg.startLocation.lng),
+            end = LatLng(leg.endLocation.lat, leg.endLocation.lng),
+            distanceMeters = distance.value,
+            distanceText = distance.text,
+            durationSeconds = duration.value,
+            durationText = duration.text
         )
     }
-    val totalDistanceMeters = osrmRoute.distance?.toLong() ?: legs.sumOf { it.distanceMeters }
-    val totalDurationSeconds = osrmRoute.duration?.toLong() ?: legs.sumOf { it.durationSeconds }
+    if (legs.isEmpty()) return null
+    val totalDistanceMeters = legs.sumOf { it.distanceMeters }
+    val totalDurationSeconds = legs.sumOf { it.durationSeconds }
+    val totalDistanceText = formatDistance(totalDistanceMeters)
+    val totalDurationText = formatDuration(totalDurationSeconds)
     return RouteCandidate(
-        overviewPolyline = osrmRoute.geometry,
+        overviewPolyline = firstRoute.overviewPolyline?.points,
         totalDistanceMeters = totalDistanceMeters,
-        totalDistanceText = formatDistance(totalDistanceMeters.toDouble()),
+        totalDistanceText = totalDistanceText,
         totalDurationSeconds = totalDurationSeconds,
-        totalDurationText = formatDuration(totalDurationSeconds.toDouble()),
+        totalDurationText = totalDurationText,
         legs = legs
     )
 }
@@ -183,21 +207,20 @@ fun selectBestCandidate(candidates: List<CandidateResult>): CandidateResult? {
     )
 }
 
-private fun formatDistance(meters: Double): String {
+private fun formatDistance(meters: Long): String {
     if (meters >= 1000) {
         val km = meters / 1000.0
         return String.format(Locale.getDefault(), "%.1f km", km)
     }
-    return String.format(Locale.getDefault(), "%.0f m", meters)
+    return "$meters m"
 }
 
-private fun formatDuration(seconds: Double): String {
-    val totalSeconds = seconds.toLong()
-    val hours = totalSeconds / 3600
-    val minutes = (totalSeconds % 3600) / 60
+private fun formatDuration(seconds: Long): String {
+    val hours = seconds / 3600
+    val minutes = (seconds % 3600) / 60
     return when {
         hours > 0 -> String.format(Locale.getDefault(), "%d h %02d min", hours, minutes)
         minutes > 0 -> String.format(Locale.getDefault(), "%d min", minutes)
-        else -> String.format(Locale.getDefault(), "%d s", totalSeconds)
+        else -> String.format(Locale.getDefault(), "%d s", seconds)
     }
 }

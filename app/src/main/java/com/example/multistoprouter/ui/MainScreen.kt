@@ -25,38 +25,29 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.DefaultLifecycleObserver
-import androidx.lifecycle.LifecycleOwner
 import com.example.multistoprouter.R
-import com.example.multistoprouter.data.GeoPoint
 import com.example.multistoprouter.data.PlaceSuggestion
 import com.example.multistoprouter.data.RouteStatus
 import com.example.multistoprouter.data.RouteSummary
 import com.example.multistoprouter.data.RouteUiState
 import com.example.multistoprouter.data.TravelMode
-import com.example.multistoprouter.net.decodePolyline
-import com.mapbox.mapboxsdk.Mapbox
-import com.mapbox.mapboxsdk.annotations.MarkerOptions
-import com.mapbox.mapboxsdk.annotations.PolylineOptions
-import com.mapbox.mapboxsdk.camera.CameraPosition
-import com.mapbox.mapboxsdk.camera.CameraUpdateFactory
-import com.mapbox.mapboxsdk.geometry.LatLng
-import com.mapbox.mapboxsdk.maps.MapView
-import com.mapbox.mapboxsdk.maps.MapboxMap
-import com.mapbox.mapboxsdk.maps.Style
-
-private const val MAP_STYLE_URL = "https://demotiles.maplibre.org/style.json"
+import com.google.android.gms.maps.CameraUpdateFactory
+import com.google.android.gms.maps.model.CameraPosition
+import com.google.android.gms.maps.model.LatLng
+import com.google.maps.android.PolyUtil
+import com.google.maps.android.compose.GoogleMap
+import com.google.maps.android.compose.Marker
+import com.google.maps.android.compose.Polyline
+import com.google.maps.android.compose.rememberCameraPositionState
+import com.google.maps.android.compose.rememberMarkerState
 
 @Composable
 fun MultiStopRouterApp(
@@ -204,23 +195,19 @@ private fun TravelModeSelector(
 
 @Composable
 private fun MapSection(uiState: RouteUiState) {
-    val context = LocalContext.current
-    val lifecycleOwner = LocalLifecycleOwner.current
-    val mapView = rememberMapViewWithLifecycle(context, lifecycleOwner)
-    val decodedPolyline = remember(uiState.routePolyline) {
-        uiState.routePolyline?.let { decodePolyline(it) }
+    val defaultPosition = CameraPosition.fromLatLngZoom(LatLng(52.52, 13.4050), 10f)
+    val cameraPositionState = rememberCameraPositionState {
+        position = uiState.cameraPosition ?: defaultPosition
     }
 
-    LaunchedEffect(uiState.viewport, uiState.startSelection, uiState.stopoverSelection, uiState.destinationSelection, decodedPolyline) {
-        mapView.getMapAsync { mapboxMap ->
-            if (mapboxMap.style == null) {
-                mapboxMap.setStyle(Style.Builder().fromUri(MAP_STYLE_URL)) {
-                    updateMap(mapboxMap, uiState, decodedPolyline)
-                }
-            } else {
-                updateMap(mapboxMap, uiState, decodedPolyline)
-            }
+    LaunchedEffect(uiState.cameraPosition) {
+        uiState.cameraPosition?.let { position ->
+            cameraPositionState.animate(CameraUpdateFactory.newCameraPosition(position))
         }
+    }
+
+    val polylinePoints = remember(uiState.routePolyline) {
+        uiState.routePolyline?.let { PolyUtil.decode(it) }
     }
 
     Box(
@@ -228,10 +215,26 @@ private fun MapSection(uiState: RouteUiState) {
             .fillMaxWidth()
             .height(260.dp)
     ) {
-        AndroidMapViewContainer(mapView)
+        GoogleMap(
+            modifier = Modifier.matchParentSize(),
+            cameraPositionState = cameraPositionState
+        ) {
+            uiState.startSelection?.let {
+                Marker(state = rememberMarkerState(position = it.latLng), title = it.name)
+            }
+            uiState.stopoverSelection?.let {
+                Marker(state = rememberMarkerState(position = it.latLng), title = it.name)
+            }
+            uiState.destinationSelection?.let {
+                Marker(state = rememberMarkerState(position = it.latLng), title = it.name)
+            }
+            polylinePoints?.let { points ->
+                Polyline(points = points)
+            }
+        }
         if (uiState.status is RouteStatus.Loading) {
             Box(
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier.matchParentSize(),
                 contentAlignment = Alignment.Center
             ) {
                 CircularProgressIndicator()
@@ -239,77 +242,6 @@ private fun MapSection(uiState: RouteUiState) {
         }
     }
 }
-
-@Composable
-private fun AndroidMapViewContainer(mapView: MapView) {
-    androidx.compose.ui.viewinterop.AndroidView(
-        factory = { mapView },
-        modifier = Modifier.fillMaxSize()
-    )
-}
-
-private fun updateMap(mapboxMap: MapboxMap, uiState: RouteUiState, decodedPolyline: List<GeoPoint>?) {
-    mapboxMap.clear()
-    uiState.startSelection?.let {
-        mapboxMap.addMarker(MarkerOptions().position(it.point.toLatLng()).title(it.name))
-    }
-    uiState.stopoverSelection?.let {
-        mapboxMap.addMarker(MarkerOptions().position(it.point.toLatLng()).title(it.name))
-    }
-    uiState.destinationSelection?.let {
-        mapboxMap.addMarker(MarkerOptions().position(it.point.toLatLng()).title(it.name))
-    }
-    decodedPolyline?.takeIf { it.isNotEmpty() }?.let { points ->
-        val latLngs = points.map { LatLng(it.latitude, it.longitude) }
-        mapboxMap.addPolyline(PolylineOptions().addAll(latLngs))
-    }
-    uiState.viewport?.let { viewport ->
-        val position = CameraPosition.Builder()
-            .target(viewport.center.toLatLng())
-            .zoom(viewport.zoom)
-            .build()
-        mapboxMap.animateCamera(CameraUpdateFactory.newCameraPosition(position))
-    }
-}
-
-@Composable
-private fun rememberMapViewWithLifecycle(context: android.content.Context, lifecycleOwner: LifecycleOwner): MapView {
-    val mapView = remember {
-        Mapbox.getInstance(context.applicationContext, null)
-        MapView(context).apply { onCreate(null) }
-    }
-    DisposableEffect(lifecycleOwner, mapView) {
-        val observer = object : DefaultLifecycleObserver {
-            override fun onStart(owner: LifecycleOwner) {
-                mapView.onStart()
-            }
-
-            override fun onResume(owner: LifecycleOwner) {
-                mapView.onResume()
-            }
-
-            override fun onPause(owner: LifecycleOwner) {
-                mapView.onPause()
-            }
-
-            override fun onStop(owner: LifecycleOwner) {
-                mapView.onStop()
-            }
-
-            override fun onDestroy(owner: LifecycleOwner) {
-                mapView.onDestroy()
-            }
-        }
-        lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose {
-            lifecycleOwner.lifecycle.removeObserver(observer)
-            mapView.onDestroy()
-        }
-    }
-    return mapView
-}
-
-private fun GeoPoint.toLatLng(): LatLng = LatLng(latitude, longitude)
 
 @Composable
 private fun RouteSummaryCard(summary: RouteSummary?) {

@@ -1,15 +1,13 @@
 package com.example.multistoprouter.data
 
+import com.google.android.gms.maps.model.CameraPosition
+import com.google.android.gms.maps.model.LatLng
+
 sealed class RouteStatus {
     data object Idle : RouteStatus()
     data object Loading : RouteStatus()
     data class Error(val message: String) : RouteStatus()
 }
-
-data class MapViewport(
-    val center: GeoPoint,
-    val zoom: Double
-)
 
 data class RouteUiState(
     val startQuery: String = "",
@@ -23,10 +21,12 @@ data class RouteUiState(
     val suggestionsStopover: List<PlaceSuggestion> = emptyList(),
     val suggestionsDestination: List<PlaceSuggestion> = emptyList(),
     val routePolyline: String? = null,
-    val viewport: MapViewport? = null,
+    val cameraPosition: CameraPosition? = null,
     val routeSummary: RouteSummary? = null,
     val status: RouteStatus = RouteStatus.Idle
 )
 
 fun RouteUiState.hasCompleteSelection(): Boolean =
     startSelection != null && destinationSelection != null && stopoverQuery.isNotBlank()
+
+data class LatLngBoundsData(val southwest: LatLng, val northeast: LatLng)
