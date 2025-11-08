@@ -1,27 +1,28 @@
 # MultiStopRouter
 
-Android Studio project using Kotlin, Jetpack Compose, and OpenStreetMap-backed services to plan routes with a dynamically chosen stopover.
+Android Studio project using Kotlin, Jetpack Compose, Google Maps Compose, and the Google Maps Platform APIs to plan routes with a stopover automatically chosen from category searches.
 
 ## Setup
 
-1. Open the project in Android Studio (Giraffe or newer) and let Gradle sync.
-2. (Optional) Regenerate the Gradle wrapper locally with `gradle wrapper` if you need the wrapper JAR for command-line builds.
-3. (Optional) Add `MAP_STYLE_URL=<your style url>` to `local.properties` to change the MapLibre style (defaults to the public demo tiles).
-4. Run `./gradlew test` to execute the JVM unit tests.
-5. Build a release APK with `./gradlew assembleRelease` (configure signing for distribution).
+1. Create a `local.properties` file (if not already present) and add your Google Maps Platform key:
+   ```properties
+   MAPS_API_KEY=YOUR_REAL_KEY
+   ```
+2. Open the project in Android Studio (Giraffe or newer) and let Gradle sync.
+3. Run `./gradlew test` to execute the included JVM unit tests.
+4. Build a release APK with `./gradlew assembleRelease` (requires configuring a release signing config if distributing externally).
 
 ## Features
 
-- Autocomplete inputs for start, stopover category, and destination powered by the Photon (OpenStreetMap) API.
-- Mode switch (Fuß, Auto, Fahrrad) mapped to the public OSRM routing profiles; ÖPNV reports a friendly unsupported message.
-- Automatic search for the fastest route Start → best matching stopover → Ziel using OSRM directions for each candidate.
-- MapLibre-based map with OpenStreetMap tiles, markers for the selected points, and a polyline of the fastest route.
-- Simple in-memory caching for autocomplete suggestions and route responses to reduce network load.
-- Location permission handling with graceful fallbacks when denied.
+- Autocomplete inputs for start, stopover query, and destination using the Places SDK for Android.
+- Mode switch (walking, driving, bicycling, transit) mapped to the Google Directions API.
+- Automatic search for the fastest route Start → best matching stopover → destination using the Directions Web API.
+- Google Maps Compose map with markers and polylines for the chosen route.
+- Simple in-memory caching for autocomplete, place details, and route responses.
+- Location permission handling with fallback messaging.
 - Unit tests covering the best-route selection logic.
 
 ## Notes
 
-- The app uses public demo endpoints (Photon, OSRM) intended for experimentation. For production deployments host your own stack or obtain appropriate API access.
-- Transit routing is not supported by OSRM; selecting ÖPNV informs users accordingly.
-- The Gradle wrapper JAR is omitted. Generate it locally if required.
+- Replace the placeholder API key with a restricted production key before release. All API usage is centralized through `RoutesRepository` and the Retrofit services.
+- The Gradle wrapper jar is not included. Run `gradle wrapper` locally if you need to regenerate it.

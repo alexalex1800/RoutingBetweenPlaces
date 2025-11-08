@@ -1,5 +1,7 @@
 <resources>
     <string name="app_name">MultiStopRouter</string>
+    <!-- TODO: Replace with a secure API key provided via local.properties (MAPS_API_KEY). -->
+    <string name="google_maps_key">YOUR_MAPS_API_KEY</string>
     <string name="start_label">Start</string>
     <string name="stopover_label">Zwischenziel</string>
     <string name="destination_label">Ziel</string>

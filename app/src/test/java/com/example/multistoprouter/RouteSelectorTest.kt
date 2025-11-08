@@ -1,11 +1,11 @@
 package com.example.multistoprouter
 
 import com.example.multistoprouter.data.CandidateResult
-import com.example.multistoprouter.data.GeoPoint
 import com.example.multistoprouter.data.PlaceLocation
 import com.example.multistoprouter.data.RouteCandidate
 import com.example.multistoprouter.data.RouteLeg
 import com.example.multistoprouter.data.selectBestCandidate
+import com.google.android.gms.maps.model.LatLng
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
@@ -38,7 +38,7 @@ class RouteSelectorTest {
             placeId = "test",
             name = "Test",
             address = null,
-            point = GeoPoint(0.0, 0.0)
+            latLng = LatLng(0.0, 0.0)
         )
         val route = RouteCandidate(
             overviewPolyline = null,
@@ -48,8 +48,8 @@ class RouteSelectorTest {
             totalDurationText = "$durationSeconds s",
             legs = listOf(
                 RouteLeg(
-                    start = GeoPoint(0.0, 0.0),
-                    end = GeoPoint(1.0, 1.0),
+                    start = LatLng(0.0, 0.0),
+                    end = LatLng(1.0, 1.0),
                     distanceMeters = distanceMeters,
                     distanceText = "$distanceMeters m",
                     durationSeconds = durationSeconds,

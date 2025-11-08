@@ -3,17 +3,17 @@ package com.example.multistoprouter
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.multistoprouter.data.CandidateResult
-import com.example.multistoprouter.data.GeoPoint
-import com.example.multistoprouter.data.MapViewport
 import com.example.multistoprouter.data.PlaceLocation
 import com.example.multistoprouter.data.PlaceSuggestion
 import com.example.multistoprouter.data.RouteStatus
 import com.example.multistoprouter.data.RouteSummary
 import com.example.multistoprouter.data.RouteUiState
-import com.example.multistoprouter.data.RoutesRepository
 import com.example.multistoprouter.data.TravelMode
 import com.example.multistoprouter.data.hasCompleteSelection
+import com.example.multistoprouter.data.RoutesRepository
 import com.example.multistoprouter.location.LocationRepository
+import com.google.android.gms.maps.model.CameraPosition
+import com.google.android.gms.maps.model.LatLng
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -74,55 +74,46 @@ class MainViewModel(
     }
 
     fun onStartQueryChange(value: String) {
-        _uiState.value = _uiState.value.copy(
-            startQuery = value,
-            startSelection = null,
-            stopoverSelection = null,
-            routePolyline = null,
-            routeSummary = null,
-            viewport = null
-        )
+        _uiState.value = _uiState.value.copy(startQuery = value, startSelection = null)
         startQuery.value = value
     }
 
     fun onStopoverQueryChange(value: String) {
-        _uiState.value = _uiState.value.copy(stopoverQuery = value, stopoverSelection = null, routePolyline = null, routeSummary = null, viewport = null)
+        _uiState.value = _uiState.value.copy(stopoverQuery = value)
         stopoverQuery.value = value
         triggerRouteRefresh()
     }
 
     fun onDestinationQueryChange(value: String) {
-        _uiState.value = _uiState.value.copy(
-            destinationQuery = value,
-            destinationSelection = null,
-            stopoverSelection = null,
-            routePolyline = null,
-            routeSummary = null,
-            viewport = null
-        )
+        _uiState.value = _uiState.value.copy(destinationQuery = value, destinationSelection = null)
         destinationQuery.value = value
     }
 
     fun onStartSuggestionSelected(suggestion: PlaceSuggestion) {
-        _uiState.value = _uiState.value.copy(
-            startQuery = suggestion.description,
-            startSelection = suggestion.toPlaceLocation()
-        )
-        triggerRouteRefresh()
+        _uiState.value = _uiState.value.copy(startQuery = suggestion.description)
+        viewModelScope.launch {
+            routesRepository.fetchPlace(suggestion.placeId)?.let { place ->
+                _uiState.value = _uiState.value.copy(startSelection = place)
+                triggerRouteRefresh()
+            }
+        }
     }
 
     fun onStopoverSuggestionSelected(suggestion: PlaceSuggestion) {
-        _uiState.value = _uiState.value.copy(stopoverQuery = suggestion.description)
-        stopoverQuery.value = suggestion.description
+        val text = suggestion.description
+        _uiState.value = _uiState.value.copy(stopoverQuery = text)
+        stopoverQuery.value = text
         triggerRouteRefresh()
     }
 
     fun onDestinationSuggestionSelected(suggestion: PlaceSuggestion) {
-        _uiState.value = _uiState.value.copy(
-            destinationQuery = suggestion.description,
-            destinationSelection = suggestion.toPlaceLocation()
-        )
-        triggerRouteRefresh()
+        _uiState.value = _uiState.value.copy(destinationQuery = suggestion.description)
+        viewModelScope.launch {
+            routesRepository.fetchPlace(suggestion.placeId)?.let { place ->
+                _uiState.value = _uiState.value.copy(destinationSelection = place)
+                triggerRouteRefresh()
+            }
+        }
     }
 
     fun onTravelModeChange(mode: TravelMode) {
@@ -130,12 +121,12 @@ class MainViewModel(
         triggerRouteRefresh()
     }
 
-    fun setCurrentLocation(point: GeoPoint) {
+    fun setCurrentLocation(latLng: LatLng) {
         val current = PlaceLocation(
-            placeId = "current", 
+            placeId = "",
             name = "Aktueller Standort",
             address = null,
-            point = point
+            latLng = latLng
         )
         _uiState.value = _uiState.value.copy(
             startSelection = current,
@@ -159,21 +150,11 @@ class MainViewModel(
             delay(200)
             val state = _uiState.value
             if (!state.hasCompleteSelection()) return@launch
-            if (!state.travelMode.isSupported) {
-                _uiState.value = state.copy(
-                    status = RouteStatus.Error("ÖPNV wird durch den offenen OSRM-Dienst nicht unterstützt."),
-                    routeSummary = null,
-                    routePolyline = null,
-                    stopoverSelection = null,
-                    viewport = null
-                )
-                return@launch
-            }
             val start = state.startSelection ?: return@launch
             val destination = state.destinationSelection ?: return@launch
             val stopoverQuery = state.stopoverQuery
             _uiState.value = state.copy(status = RouteStatus.Loading)
-            val anchor = computeAnchor(start.point, destination.point)
+            val anchor = computeAnchor(start.latLng, destination.latLng)
             val result = routesRepository.findBestRoute(
                 start = start,
                 stopoverQuery = stopoverQuery,
@@ -186,8 +167,7 @@ class MainViewModel(
                     status = RouteStatus.Error("Keine Route gefunden (Kandidaten oder Netzfehler)"),
                     routeSummary = null,
                     routePolyline = null,
-                    stopoverSelection = null,
-                    viewport = null
+                    stopoverSelection = null
                 )
             } else {
                 applyRouteResult(result)
@@ -196,42 +176,41 @@ class MainViewModel(
     }
 
     private fun applyRouteResult(result: CandidateResult) {
+        val legs = result.route.legs
+        val lastLeg = legs.lastOrNull()
+        val camera = lastLeg?.let {
+            val mid = midpoint(legs.first().start, legs.last().end)
+            CameraPosition.Builder()
+                .target(mid)
+                .zoom(11f)
+                .build()
+        }
         val summary = RouteSummary(
             stopoverName = result.candidate.name,
             stopoverAddress = result.candidate.address,
             distanceText = result.route.totalDistanceText,
             durationText = result.route.totalDurationText
         )
-        val viewport = createViewport(result)
         _uiState.value = _uiState.value.copy(
             stopoverSelection = result.candidate,
             routePolyline = result.route.overviewPolyline,
             routeSummary = summary,
-            viewport = viewport,
+            cameraPosition = camera,
             status = RouteStatus.Idle
         )
     }
 
-    private fun createViewport(result: CandidateResult): MapViewport? {
-        val legs = result.route.legs
-        if (legs.isEmpty()) return null
-        val start = legs.first().start
-        val end = legs.last().end
-        val center = midpoint(start, end)
-        return MapViewport(center = center, zoom = 10.5)
-    }
-
-    private fun computeAnchor(start: GeoPoint, destination: GeoPoint): GeoPoint {
-        return GeoPoint(
-            latitude = (start.latitude + destination.latitude) / 2.0,
-            longitude = (start.longitude + destination.longitude) / 2.0
+    private fun computeAnchor(start: LatLng, destination: LatLng): LatLng {
+        return LatLng(
+            (start.latitude + destination.latitude) / 2.0,
+            (start.longitude + destination.longitude) / 2.0
         )
     }
 
-    private fun midpoint(start: GeoPoint, end: GeoPoint): GeoPoint {
-        return GeoPoint(
-            latitude = (start.latitude + end.latitude) / 2.0,
-            longitude = (start.longitude + end.longitude) / 2.0
+    private fun midpoint(start: LatLng, end: LatLng): LatLng {
+        return LatLng(
+            (start.latitude + end.latitude) / 2.0,
+            (start.longitude + end.longitude) / 2.0
         )
     }
 

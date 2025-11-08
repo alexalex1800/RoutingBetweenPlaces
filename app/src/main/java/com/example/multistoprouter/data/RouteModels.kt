@@ -1,32 +1,19 @@
 package com.example.multistoprouter.data
 
-/** Simple latitude/longitude coordinate used across the app. */
-data class GeoPoint(
-    val latitude: Double,
-    val longitude: Double
-)
+import com.google.android.gms.maps.model.LatLng
 
-/** Represents an autocomplete suggestion from Photon (OpenStreetMap search). */
+/** Represents an autocomplete suggestion from the Places SDK. */
 data class PlaceSuggestion(
-    val id: String,
-    val description: String,
-    val address: String?,
-    val coordinate: GeoPoint
-) {
-    fun toPlaceLocation(): PlaceLocation = PlaceLocation(
-        placeId = id,
-        name = description,
-        address = address,
-        point = coordinate
-    )
-}
+    val placeId: String,
+    val description: String
+)
 
 /** Snapshot of a place location used for routing. */
 data class PlaceLocation(
     val placeId: String,
     val name: String,
     val address: String?,
-    val point: GeoPoint
+    val latLng: LatLng
 )
 
 data class CandidateResult(
@@ -44,8 +31,8 @@ data class RouteCandidate(
 )
 
 data class RouteLeg(
-    val start: GeoPoint,
-    val end: GeoPoint,
+    val start: LatLng,
+    val end: LatLng,
     val distanceMeters: Long,
     val distanceText: String,
     val durationSeconds: Long,
