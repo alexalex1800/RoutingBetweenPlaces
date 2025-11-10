@@ -51,31 +51,6 @@ android {
     }
 }
 
-val localProps = java.util.Properties().apply {
-    val localFile = rootProject.file("local.properties")
-    if (localFile.exists()) {
-        load(localFile.inputStream())
-    }
-}
-
-val mapsKey = (localProps["MAPS_API_KEY"] as? String).orEmpty()
-
-android {
-    defaultConfig {
-        if (mapsKey.isNotBlank()) {
-            buildConfigField("String", "MAPS_API_KEY", "\"$mapsKey\"")
-            resValue("string", "google_maps_key", mapsKey)
-        } else {
-            buildConfigField("String", "MAPS_API_KEY", "\"YOUR_MAPS_API_KEY\"")
-            resValue("string", "google_maps_key", "YOUR_MAPS_API_KEY")
-        }
-    }
-    val manifestKey = if (mapsKey.isNotBlank()) mapsKey else "YOUR_MAPS_API_KEY"
-    buildTypes.all {
-        manifestPlaceholders["MAPS_API_KEY"] = manifestKey
-    }
-}
-
 dependencies {
     val composeBom = platform("androidx.compose:compose-bom:2024.10.00")
     implementation(composeBom)
@@ -92,28 +67,19 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.6")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.6")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.6")
+    implementation("androidx.preference:preference-ktx:1.2.1")
 
-    // Maps Compose & Play Services
-    implementation("com.google.android.gms:play-services-maps:19.0.0")
     implementation("com.google.android.gms:play-services-location:21.3.0")
-    implementation("com.google.maps.android:maps-compose:6.2.1")
-    implementation("com.google.maps.android:maps-utils-ktx:5.1.1")
 
-    // Places SDK
-    implementation("com.google.android.libraries.places:places:4.1.0")
+    implementation("org.osmdroid:osmdroid-android:6.1.20")
 
-    // Networking
     implementation("com.squareup.retrofit2:retrofit:2.11.0")
     implementation("com.squareup.retrofit2:converter-moshi:2.11.0")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("com.squareup.okhttp3:logging-interceptor:4.12.0")
     implementation("com.squareup.moshi:moshi-kotlin:1.15.1")
 
-    // Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
-
-    // Permissions
-    implementation("com.google.accompanist:accompanist-permissions:0.36.0")
 
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")

@@ -1,8 +1,5 @@
 package com.example.multistoprouter.data
 
-import com.google.android.gms.maps.model.CameraPosition
-import com.google.android.gms.maps.model.LatLng
-
 sealed class RouteStatus {
     data object Idle : RouteStatus()
     data object Loading : RouteStatus()
@@ -21,7 +18,8 @@ data class RouteUiState(
     val suggestionsStopover: List<PlaceSuggestion> = emptyList(),
     val suggestionsDestination: List<PlaceSuggestion> = emptyList(),
     val routePolyline: String? = null,
-    val cameraPosition: CameraPosition? = null,
+    val mapCenter: LatLng? = null,
+    val mapZoom: Double = 10.0,
     val routeSummary: RouteSummary? = null,
     val status: RouteStatus = RouteStatus.Idle
 )

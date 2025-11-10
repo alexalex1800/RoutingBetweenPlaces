@@ -1,16 +1,16 @@
 package com.example.multistoprouter.data
 
-import com.google.android.gms.maps.model.LatLng
-
-/** Represents an autocomplete suggestion from the Places SDK. */
+/** Represents an autocomplete suggestion from the search endpoint. */
 data class PlaceSuggestion(
-    val placeId: String,
-    val description: String
+    val id: String,
+    val description: String,
+    val address: String?,
+    val latLng: LatLng
 )
 
 /** Snapshot of a place location used for routing. */
 data class PlaceLocation(
-    val placeId: String,
+    val id: String,
     val name: String,
     val address: String?,
     val latLng: LatLng
