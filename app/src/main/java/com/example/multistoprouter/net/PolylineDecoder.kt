@@ -1,12 +1,9 @@
 package com.example.multistoprouter.net
 
-import com.example.multistoprouter.data.GeoPoint
+import com.example.multistoprouter.data.LatLng
 
-/**
- * Decodes a polyline string encoded with Google's polyline algorithm.
- */
-fun decodePolyline(polyline: String): List<GeoPoint> {
-    val coordinates = mutableListOf<GeoPoint>()
+fun decodePolyline(polyline: String): List<LatLng> {
+    val coordinates = mutableListOf<LatLng>()
     var index = 0
     val length = polyline.length
     var lat = 0
@@ -34,7 +31,7 @@ fun decodePolyline(polyline: String): List<GeoPoint> {
         val deltaLng = if ((result and 1) != 0) (result shr 1).inv() else (result shr 1)
         lng += deltaLng
 
-        coordinates += GeoPoint(lat / 1E5, lng / 1E5)
+        coordinates += LatLng(lat / 1E5, lng / 1E5)
     }
 
     return coordinates

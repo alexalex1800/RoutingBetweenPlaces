@@ -5,7 +5,7 @@ import com.example.multistoprouter.data.PlaceLocation
 import com.example.multistoprouter.data.RouteCandidate
 import com.example.multistoprouter.data.RouteLeg
 import com.example.multistoprouter.data.selectBestCandidate
-import com.google.android.gms.maps.model.LatLng
+import com.example.multistoprouter.data.LatLng
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
@@ -35,7 +35,7 @@ class RouteSelectorTest {
 
     private fun candidate(durationSeconds: Long, distanceMeters: Long): CandidateResult {
         val location = PlaceLocation(
-            placeId = "test",
+            id = "test",
             name = "Test",
             address = null,
             latLng = LatLng(0.0, 0.0)

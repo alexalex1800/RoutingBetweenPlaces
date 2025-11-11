@@ -1,5 +1,6 @@
 package com.example.multistoprouter.ui
 
+import android.graphics.Color
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -26,28 +27,29 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
 import com.example.multistoprouter.R
 import com.example.multistoprouter.data.PlaceSuggestion
 import com.example.multistoprouter.data.RouteStatus
 import com.example.multistoprouter.data.RouteSummary
 import com.example.multistoprouter.data.RouteUiState
 import com.example.multistoprouter.data.TravelMode
-import com.google.android.gms.maps.CameraUpdateFactory
-import com.google.android.gms.maps.model.CameraPosition
-import com.google.android.gms.maps.model.LatLng
-import com.google.maps.android.PolyUtil
-import com.google.maps.android.compose.GoogleMap
-import com.google.maps.android.compose.Marker
-import com.google.maps.android.compose.Polyline
-import com.google.maps.android.compose.rememberCameraPositionState
-import com.google.maps.android.compose.rememberMarkerState
+import com.example.multistoprouter.net.decodePolyline
+import org.osmdroid.tileprovider.tilesource.TileSourceFactory
+import org.osmdroid.util.GeoPoint
+import org.osmdroid.views.MapView
+import org.osmdroid.views.overlay.Marker
+import org.osmdroid.views.overlay.Polyline
 
 @Composable
 fun MultiStopRouterApp(
@@ -195,19 +197,17 @@ private fun TravelModeSelector(
 
 @Composable
 private fun MapSection(uiState: RouteUiState) {
-    val defaultPosition = CameraPosition.fromLatLngZoom(LatLng(52.52, 13.4050), 10f)
-    val cameraPositionState = rememberCameraPositionState {
-        position = uiState.cameraPosition ?: defaultPosition
-    }
+    val context = LocalContext.current
+    val mapViewState = remember { MapView(context).apply { setTileSource(TileSourceFactory.MAPNIK) } }
+    val updatedState = rememberUpdatedState(uiState)
 
-    LaunchedEffect(uiState.cameraPosition) {
-        uiState.cameraPosition?.let { position ->
-            cameraPositionState.animate(CameraUpdateFactory.newCameraPosition(position))
+    DisposableEffect(mapViewState) {
+        mapViewState.onResume()
+        mapViewState.setMultiTouchControls(true)
+        onDispose {
+            mapViewState.onPause()
+            mapViewState.onDetach()
         }
-    }
-
-    val polylinePoints = remember(uiState.routePolyline) {
-        uiState.routePolyline?.let { PolyUtil.decode(it) }
     }
 
     Box(
@@ -215,23 +215,44 @@ private fun MapSection(uiState: RouteUiState) {
             .fillMaxWidth()
             .height(260.dp)
     ) {
-        GoogleMap(
-            modifier = Modifier.matchParentSize(),
-            cameraPositionState = cameraPositionState
-        ) {
-            uiState.startSelection?.let {
-                Marker(state = rememberMarkerState(position = it.latLng), title = it.name)
+        AndroidView(
+            factory = { mapViewState },
+            modifier = Modifier.matchParentSize()
+        ) { mapView ->
+            val state = updatedState.value
+            mapView.overlays.clear()
+
+            state.startSelection?.let { selection ->
+                mapView.overlays.add(createMarker(mapView, selection.latLng, selection.name))
             }
-            uiState.stopoverSelection?.let {
-                Marker(state = rememberMarkerState(position = it.latLng), title = it.name)
+            state.stopoverSelection?.let { selection ->
+                mapView.overlays.add(createMarker(mapView, selection.latLng, selection.name))
             }
-            uiState.destinationSelection?.let {
-                Marker(state = rememberMarkerState(position = it.latLng), title = it.name)
+            state.destinationSelection?.let { selection ->
+                mapView.overlays.add(createMarker(mapView, selection.latLng, selection.name))
             }
-            polylinePoints?.let { points ->
-                Polyline(points = points)
+
+            state.routePolyline?.let { encoded ->
+                val points = decodePolyline(encoded).map { GeoPoint(it.latitude, it.longitude) }
+                if (points.isNotEmpty()) {
+                    val line = Polyline().apply {
+                        outlinePaint.color = Color.parseColor("#1B5E20")
+                        outlinePaint.strokeWidth = 6f
+                        setPoints(points)
+                    }
+                    mapView.overlays.add(line)
+                }
             }
+
+            val target = state.mapCenter ?: state.startSelection?.latLng ?: state.destinationSelection?.latLng
+            target?.let {
+                mapView.controller.setZoom(state.mapZoom)
+                mapView.controller.setCenter(GeoPoint(it.latitude, it.longitude))
+            }
+
+            mapView.invalidate()
         }
+
         if (uiState.status is RouteStatus.Loading) {
             Box(
                 modifier = Modifier.matchParentSize(),
@@ -240,6 +261,14 @@ private fun MapSection(uiState: RouteUiState) {
                 CircularProgressIndicator()
             }
         }
+    }
+}
+
+private fun createMarker(mapView: MapView, latLng: com.example.multistoprouter.data.LatLng, title: String): Marker {
+    return Marker(mapView).apply {
+        position = GeoPoint(latLng.latitude, latLng.longitude)
+        this.title = title
+        setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
     }
 }
 
@@ -259,8 +288,8 @@ private fun RouteSummaryCard(summary: RouteSummary?) {
                     Text(text = it, style = MaterialTheme.typography.bodyMedium)
                 }
                 Spacer(modifier = Modifier.height(12.dp))
-                Text(text = "Dauer: ${summary.durationText}")
-                Text(text = "Distanz: ${summary.distanceText}")
+                Text(text = stringResource(id = R.string.route_summary_duration, summary.durationText))
+                Text(text = stringResource(id = R.string.route_summary_distance, summary.distanceText))
             }
         }
     }

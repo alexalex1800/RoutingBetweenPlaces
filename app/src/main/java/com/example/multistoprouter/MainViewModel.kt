@@ -3,6 +3,7 @@ package com.example.multistoprouter
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.multistoprouter.data.CandidateResult
+import com.example.multistoprouter.data.LatLng
 import com.example.multistoprouter.data.PlaceLocation
 import com.example.multistoprouter.data.PlaceSuggestion
 import com.example.multistoprouter.data.RouteStatus
@@ -10,10 +11,9 @@ import com.example.multistoprouter.data.RouteSummary
 import com.example.multistoprouter.data.RouteUiState
 import com.example.multistoprouter.data.TravelMode
 import com.example.multistoprouter.data.hasCompleteSelection
+import com.example.multistoprouter.data.midpoint
 import com.example.multistoprouter.data.RoutesRepository
 import com.example.multistoprouter.location.LocationRepository
-import com.google.android.gms.maps.model.CameraPosition
-import com.google.android.gms.maps.model.LatLng
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -90,30 +90,25 @@ class MainViewModel(
     }
 
     fun onStartSuggestionSelected(suggestion: PlaceSuggestion) {
-        _uiState.value = _uiState.value.copy(startQuery = suggestion.description)
-        viewModelScope.launch {
-            routesRepository.fetchPlace(suggestion.placeId)?.let { place ->
-                _uiState.value = _uiState.value.copy(startSelection = place)
-                triggerRouteRefresh()
-            }
-        }
+        _uiState.value = _uiState.value.copy(
+            startQuery = suggestion.description,
+            startSelection = suggestion.toPlaceLocation()
+        )
+        triggerRouteRefresh()
     }
 
     fun onStopoverSuggestionSelected(suggestion: PlaceSuggestion) {
-        val text = suggestion.description
-        _uiState.value = _uiState.value.copy(stopoverQuery = text)
-        stopoverQuery.value = text
+        _uiState.value = _uiState.value.copy(stopoverQuery = suggestion.description)
+        stopoverQuery.value = suggestion.description
         triggerRouteRefresh()
     }
 
     fun onDestinationSuggestionSelected(suggestion: PlaceSuggestion) {
-        _uiState.value = _uiState.value.copy(destinationQuery = suggestion.description)
-        viewModelScope.launch {
-            routesRepository.fetchPlace(suggestion.placeId)?.let { place ->
-                _uiState.value = _uiState.value.copy(destinationSelection = place)
-                triggerRouteRefresh()
-            }
-        }
+        _uiState.value = _uiState.value.copy(
+            destinationQuery = suggestion.description,
+            destinationSelection = suggestion.toPlaceLocation()
+        )
+        triggerRouteRefresh()
     }
 
     fun onTravelModeChange(mode: TravelMode) {
@@ -123,7 +118,7 @@ class MainViewModel(
 
     fun setCurrentLocation(latLng: LatLng) {
         val current = PlaceLocation(
-            placeId = "",
+            id = "current",
             name = "Aktueller Standort",
             address = null,
             latLng = latLng
@@ -176,43 +171,39 @@ class MainViewModel(
     }
 
     private fun applyRouteResult(result: CandidateResult) {
-        val legs = result.route.legs
-        val lastLeg = legs.lastOrNull()
-        val camera = lastLeg?.let {
-            val mid = midpoint(legs.first().start, legs.last().end)
-            CameraPosition.Builder()
-                .target(mid)
-                .zoom(11f)
-                .build()
-        }
         val summary = RouteSummary(
             stopoverName = result.candidate.name,
             stopoverAddress = result.candidate.address,
             distanceText = result.route.totalDistanceText,
             durationText = result.route.totalDurationText
         )
+        val routeCenter = computeMapCenter(result)
         _uiState.value = _uiState.value.copy(
             stopoverSelection = result.candidate,
             routePolyline = result.route.overviewPolyline,
             routeSummary = summary,
-            cameraPosition = camera,
+            mapCenter = routeCenter,
+            mapZoom = 11.5,
             status = RouteStatus.Idle
         )
     }
 
-    private fun computeAnchor(start: LatLng, destination: LatLng): LatLng {
-        return LatLng(
-            (start.latitude + destination.latitude) / 2.0,
-            (start.longitude + destination.longitude) / 2.0
-        )
+    private fun computeMapCenter(result: CandidateResult): LatLng? {
+        val firstLeg = result.route.legs.firstOrNull() ?: return result.candidate.latLng
+        val lastLeg = result.route.legs.lastOrNull() ?: return result.candidate.latLng
+        return firstLeg.start.midpoint(lastLeg.end)
     }
 
-    private fun midpoint(start: LatLng, end: LatLng): LatLng {
-        return LatLng(
-            (start.latitude + end.latitude) / 2.0,
-            (start.longitude + end.longitude) / 2.0
-        )
+    private fun computeAnchor(start: LatLng, destination: LatLng): LatLng {
+        return start.midpoint(destination)
     }
 
     enum class FieldType { START, STOPOVER, DESTINATION }
 }
+
+private fun PlaceSuggestion.toPlaceLocation(): PlaceLocation = PlaceLocation(
+    id = id,
+    name = description,
+    address = address,
+    latLng = latLng
+)

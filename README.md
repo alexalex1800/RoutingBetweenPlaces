@@ -1,28 +1,24 @@
 # MultiStopRouter
 
-Android Studio project using Kotlin, Jetpack Compose, Google Maps Compose, and the Google Maps Platform APIs to plan routes with a stopover automatically chosen from category searches.
+Android Studio project using Kotlin, Jetpack Compose, and open OpenStreetMap services to plan an optimized route A → B → C where B is automatically chosen from a free-text category query.
 
 ## Setup
 
-1. Create a `local.properties` file (if not already present) and add your Google Maps Platform key:
-   ```properties
-   MAPS_API_KEY=YOUR_REAL_KEY
-   ```
-2. Open the project in Android Studio (Giraffe or newer) and let Gradle sync.
-3. Run `./gradlew test` to execute the included JVM unit tests.
-4. Build a release APK with `./gradlew assembleRelease` (requires configuring a release signing config if distributing externally).
+1. Open the project in Android Studio (Giraffe or newer) and let Gradle sync.
+2. Provide the optional `gradle/wrapper/gradle-wrapper.jar` by running `gradle wrapper` locally if Android Studio does not download it automatically. (Network access is required the first time.)
+3. Run `./gradlew test` or `./gradlew lint` once the wrapper is available to verify the project builds.
 
 ## Features
 
-- Autocomplete inputs for start, stopover query, and destination using the Places SDK for Android.
-- Mode switch (walking, driving, bicycling, transit) mapped to the Google Directions API.
-- Automatic search for the fastest route Start → best matching stopover → destination using the Directions Web API.
-- Google Maps Compose map with markers and polylines for the chosen route.
-- Simple in-memory caching for autocomplete, place details, and route responses.
-- Location permission handling with fallback messaging.
-- Unit tests covering the best-route selection logic.
+- Autocomplete inputs for start, stopover category, and destination backed by the open Photon search API.
+- Category matching via the Overpass API with automatic bounding box around the midpoint of start and destination.
+- Optimized routing that evaluates each candidate stopover using the public OSRM routing service and selects the fastest result.
+- Jetpack Compose UI with OSMDroid map embedding, markers for start/stopover/destination, and the decoded OSRM polyline.
+- Travel mode selector supporting driving, cycling, and walking profiles.
+- Location permission handling and fused location integration for quickly setting the start point.
+- Simple in-memory caching to reduce repeated Photon, Overpass, and OSRM calls.
 
 ## Notes
 
-- Replace the placeholder API key with a restricted production key before release. All API usage is centralized through `RoutesRepository` and the Retrofit services.
-- The Gradle wrapper jar is not included. Run `gradle wrapper` locally if you need to regenerate it.
+- All network access is anonymous and does not require API keys, but the public OSM services impose usage limits. Consider self-hosting if you need higher throughput.
+- The Gradle wrapper JAR is excluded from version control. Running `gradle wrapper` locally (or letting Android Studio download the Gradle distribution) restores it when needed.

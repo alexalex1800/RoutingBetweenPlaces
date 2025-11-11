@@ -1,10 +1,9 @@
 package com.example.multistoprouter.data
 
-enum class TravelMode(val apiValue: String, val displayName: String) {
-    WALKING("walking", "Fuß"),
+enum class TravelMode(val osrmProfile: String, val displayName: String) {
     DRIVING("driving", "Auto"),
-    BICYCLING("bicycling", "Fahrrad"),
-    TRANSIT("transit", "ÖPNV");
+    CYCLING("cycling", "Fahrrad"),
+    WALKING("walking", "Zu Fuß");
 
     companion object {
         fun fromIndex(index: Int): TravelMode = entries.getOrElse(index) { DRIVING }

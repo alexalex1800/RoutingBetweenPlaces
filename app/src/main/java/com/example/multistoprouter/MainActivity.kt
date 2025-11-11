@@ -12,19 +12,21 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.preference.PreferenceManager
 import com.example.multistoprouter.R
 import com.example.multistoprouter.data.RouteStatus
 import com.example.multistoprouter.data.RoutesRepository
 import com.example.multistoprouter.location.LocationRepository
+import com.example.multistoprouter.net.OsrmApi
+import com.example.multistoprouter.net.OverpassApi
+import com.example.multistoprouter.net.PhotonApi
 import com.example.multistoprouter.ui.MultiStopRouterApp
 import com.example.multistoprouter.ui.theme.MultiStopRouterTheme
-import com.example.multistoprouter.net.DirectionsApi
-import com.example.multistoprouter.net.PlacesTextSearchApi
-import com.google.android.libraries.places.api.Places
-import com.google.android.libraries.places.api.net.PlacesClient
 import com.squareup.moshi.Moshi
+import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
+import org.osmdroid.config.Configuration
 import retrofit2.Retrofit
 import retrofit2.converter.moshi.MoshiConverterFactory
 
@@ -32,12 +34,15 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val placesClient = providePlacesClient()
-        val retrofit = provideRetrofit()
+        configureOsmdroid()
+        val moshi = Moshi.Builder()
+            .add(KotlinJsonAdapterFactory())
+            .build()
+        val httpClient = provideOkHttpClient()
         val routesRepository = RoutesRepository(
-            placesClient = placesClient,
-            directionsApi = retrofit.create(DirectionsApi::class.java),
-            textSearchApi = retrofit.create(PlacesTextSearchApi::class.java)
+            photonApi = provideRetrofit("https://photon.komoot.io", httpClient, moshi).create(PhotonApi::class.java),
+            overpassApi = provideRetrofit("https://overpass-api.de", httpClient, moshi).create(OverpassApi::class.java),
+            osrmApi = provideRetrofit("https://router.project-osrm.org", httpClient, moshi).create(OsrmApi::class.java)
         )
         val locationRepository = LocationRepository(this)
         val factory = MainViewModelFactory(routesRepository, locationRepository)
@@ -60,10 +65,12 @@ class MainActivity : ComponentActivity() {
 
                 LaunchedEffect(Unit) {
                     if (!locationRepository.hasLocationPermission(context)) {
-                        permissionLauncher.launch(arrayOf(
-                            Manifest.permission.ACCESS_FINE_LOCATION,
-                            Manifest.permission.ACCESS_COARSE_LOCATION
-                        ))
+                        permissionLauncher.launch(
+                            arrayOf(
+                                Manifest.permission.ACCESS_FINE_LOCATION,
+                                Manifest.permission.ACCESS_COARSE_LOCATION
+                            )
+                        )
                     } else {
                         viewModel.refreshCurrentLocation()
                     }
@@ -89,26 +96,26 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun providePlacesClient(): PlacesClient {
-        if (!Places.isInitialized()) {
-            // TODO: Supply a valid API key via local.properties using MAPS_API_KEY.
-            Places.initialize(applicationContext, BuildConfig.MAPS_API_KEY)
-        }
-        return Places.createClient(this)
+    private fun configureOsmdroid() {
+        val context = applicationContext
+        Configuration.getInstance().load(context, PreferenceManager.getDefaultSharedPreferences(context))
+        Configuration.getInstance().userAgentValue = packageName
     }
 
-    private fun provideRetrofit(): Retrofit {
-        val logging = HttpLoggingInterceptor().apply {
-            level = if (BuildConfig.DEBUG) HttpLoggingInterceptor.Level.BODY else HttpLoggingInterceptor.Level.BASIC
-        }
-        val client = OkHttpClient.Builder()
-            .addInterceptor(logging)
-            .build()
-        val moshi = Moshi.Builder().build()
+    private fun provideRetrofit(baseUrl: String, client: OkHttpClient, moshi: Moshi): Retrofit {
         return Retrofit.Builder()
-            .baseUrl("https://maps.googleapis.com")
+            .baseUrl(baseUrl)
             .client(client)
             .addConverterFactory(MoshiConverterFactory.create(moshi))
+            .build()
+    }
+
+    private fun provideOkHttpClient(): OkHttpClient {
+        val logging = HttpLoggingInterceptor().apply {
+            level = HttpLoggingInterceptor.Level.BASIC
+        }
+        return OkHttpClient.Builder()
+            .addInterceptor(logging)
             .build()
     }
 }
